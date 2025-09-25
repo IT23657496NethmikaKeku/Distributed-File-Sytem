@@ -21,9 +21,9 @@ import (
 )
 
 type File struct {
-	Name         string    `json:"name"`
-	Size         int64     `json:"size"`
-	LastModified time.Time `json:"last_modified"`
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	Version uint64 `json:"version"` // Using Raft log index as a logical clock
 }
 
 type DFSStateMachine struct {
@@ -36,29 +36,29 @@ func NewDFSStateMachine() *DFSStateMachine {
 	}
 }
 
-func (s *DFSStateMachine) Apply(cmd []byte) ([]byte, error) {
+func (s *DFSStateMachine) Apply(logIndex uint64, cmd []byte) ([]byte, error) {
 	c := decodeCommand(cmd)
 	switch c.Kind {
 	case CreateFile:
 		s.files.Store(c.Path, &File{
-			Name:         c.Path,
-			Size:         c.Size,
-			LastModified: time.Now(),
+			Name:    c.Path,
+			Size:    c.Size,
+			Version: logIndex,
 		})
-		log.Printf("Applied CreateFile: %s (%d bytes)", c.Path, c.Size)
+		log.Printf("Applied CreateFile [Index: %d]: %s (%d bytes)", logIndex, c.Path, c.Size)
 
 	case DeleteFile:
 		s.files.Delete(c.Path)
-		log.Printf("Applied DeleteFile: %s", c.Path)
+		log.Printf("Applied DeleteFile [Index: %d]: %s", logIndex, c.Path)
 
 	case RenameFile:
 		s.files.Delete(c.OldPath)
 		s.files.Store(c.NewPath, &File{
-			Name:         c.NewPath,
-			Size:         c.Size,
-			LastModified: time.Now(),
+			Name:    c.NewPath,
+			Size:    c.Size,
+			Version: logIndex,
 		})
-		log.Printf("Applied RenameFile: %s -> %s", c.OldPath, c.NewPath)
+		log.Printf("Applied RenameFile [Index: %d]: %s -> %s", logIndex, c.OldPath, c.NewPath)
 
 	default:
 		return nil, fmt.Errorf("unknown command: %v", c.Kind)

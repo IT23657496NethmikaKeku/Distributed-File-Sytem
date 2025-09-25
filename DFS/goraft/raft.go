@@ -22,8 +22,8 @@ func Assert[T comparable](msg string, a, b T) {
 	}
 }
 
-type StateMachine interface {
-	Apply(cmd []byte) ([]byte, error)
+type StateMachine interface { // Apply log entries to the state machine
+	Apply(logIndex uint64, cmd []byte) ([]byte, error)
 }
 
 type ApplyResult struct {
@@ -649,7 +649,7 @@ func (s *Server) advanceCommitIndex() {
 
 		if len(entry.Command) > 0 {
 			s.debugf("Applying entry %d", s.lastApplied)
-			res, err := s.statemachine.Apply(entry.Command)
+			res, err := s.statemachine.Apply(s.lastApplied, entry.Command)
 
 			if entry.result != nil {
 				entry.result <- ApplyResult{Result: res, Error: err}
