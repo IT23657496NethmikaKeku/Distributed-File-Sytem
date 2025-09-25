@@ -1,34 +1,104 @@
 # Simple Distributed File System with Raft
 
-This project is a simple implementation of a distributed file system in Go. It uses the Raft consensus algorithm to replicate file metadata (creations, deletions) across a cluster of nodes. The actual file content is stored locally on the node that receives the upload.
-This project is a simple implementation of a distributed file system (DFS) in Go. It uses the Raft consensus algorithm to replicate file metadata (creations, deletions, etc.) across a cluster of nodes, ensuring fault tolerance and consistency. The actual file content is replicated from the leader to all follower nodes.
+This project is a simple implementation of a **Distributed File System (DFS)** in Go. It uses the **Raft consensus algorithm** to replicate **file metadata** (creations, deletions, etc.) across a cluster of nodes, ensuring consistency and fault tolerance.
 
-The underlying Raft implementation is based on Phil Eaton's `goraft`.
-The underlying Raft implementation is a modified version of Phil Eaton's `goraft`.
+Unlike basic metadata-only systems, this implementation also replicates **file content** from the leader to all follower nodes, improving availability and durability.
 
-## Key Features
+The Raft layer is based on a modified version of Phil Eaton's `goraft`.
 
-*   **Raft-based Metadata Replication**: All file metadata operations are committed to a distributed log via Raft, making the file list consistent across the cluster.
-*   **Leader Election**: The cluster automatically elects a leader. All write operations are directed to the leader.
-*   **File Content Replication**: When a file is uploaded to the leader, its content is replicated to all follower nodes.
-*   **Fault Tolerance**: The system can tolerate node failures (up to `(N-1)/2` for a cluster of size `N`).
-*   **Simple HTTP API**: Interact with the file system using a straightforward REST-like API.
+---
 
-## Prerequisites
+## ✨ Key Features
 
-*   **Go**: Version 1.20 or later.
-*   **PowerShell**: Required for running the `start-cluster.ps1` script on Windows.
-*   **curl**: Or any other tool for making HTTP requests to test the API.
+- **Raft-based Metadata Replication**
+  File operations (create, delete) are committed to a distributed log via Raft, ensuring metadata is strongly consistent across the cluster.
 
-## How to Run
-## 1. How to Run
+- **Leader Election**
+  Nodes elect a leader automatically. All write operations go through the leader, while reads can be served from any replica.
 
-Follow these steps from the project's root directory.
+- **File Content Replication**
+  When a file is uploaded, the leader replicates its content to all followers. This ensures that file data is not lost if the leader crashes.
+
+- **Fault Tolerance**
+  The system tolerates up to `(N-1)/2` failures in a cluster of size `N`. Both metadata and file content remain available as long as a quorum survives.
+
+- **Simple HTTP API**
+  Interact with the DFS using REST-like endpoints for upload, download, delete, list, and status checks.
+
+---
+
+## 🏗️ Architecture Overview (ASCII)
+
+```
+  +----------------+
+  |     Client     |
+  +-------+--------+
+          |
+          v
+  +-------+--------+
+  |   Leader Node  |
+  | (Raft + Files) |
+  +---+-------+----+
+      |       |
+      |       |
++--------+   +--------+
+      v               v
++----+----+         +----+----+
+| Follower |         | Follower |
+| (Raft +  |         | (Raft +  |
+|  Files)  |         |  Files)  |
++----------+         +----------+
+```
+
+**Metadata:** Replicated via Raft log  
+**File Content:** Replicated from Leader → Followers  
+**Reads:** Can be served from any node
+
+---
+
+## 🏗️ Architecture Overview (Mermaid)
+
+```mermaid
+graph TD
+    A[Client] --> B(Leader Node);
+    B --> C(Follower Node 1);
+    B --> D(Follower Node 2);
+
+    subgraph Cluster
+        B((Leader Node<br>Raft + Files))
+        C((Follower Node 1<br>Raft + Files))
+        D((Follower Node 2<br>Raft + Files))
+    end
+
+    style B fill:#f9f,stroke:#333,stroke-width:2px;
+    style C fill:#ccf,stroke:#333;
+    style D fill:#ccf,stroke:#333;
+
+    B -- Metadata: Raft Log --> C;
+    B -- File Content: Replication --> C;
+    B -- Metadata: Raft Log --> D;
+    B -- File Content: Replication --> D;
+
+    direction LR
+```
+
+**Metadata:** Replicated via Raft log  
+**File Content:** Replicated from Leader → Followers  
+**Reads:** Can be served from any node
+
+---
+
+## 🚀 Prerequisites
+
+- **Go**: Version 1.20+
+- **PowerShell**: To run the cluster startup script on Windows
+- **curl**: For quick testing of the HTTP API
+
+---
+
+## ⚡ Running the Cluster
 
 ### 1. Build the Application
-### Build the Application
-
-First, compile the Go application. This command creates a `dfsapi.exe` executable in the root directory.
 
 ```sh
 go build -o dfsapi.exe .
@@ -36,68 +106,63 @@ go build -o dfsapi.exe .
 
 ### 2. Start the Cluster
 
-Execute the provided PowerShell script to launch a 3-node cluster. This will open three new terminal windows, one for each server instance.
-
-```powershell
+```sh
 .\start-cluster.ps1
 ```
 
-The nodes will start and be available at the following HTTP addresses:
-*   **Node 1**: `http://localhost:8081` (Raft RPC on `:3030`)
-*   **Node 2**: `http://localhost:8082` (Raft RPC on `:3031`)
-*   **Node 3**: `http://localhost:8083` (Raft RPC on `:3032`)
+This launches 3 nodes:
 
-## Testing the File System
+- Node 1 → `http://localhost:8081` (Raft RPC on `:3030`)
+- Node 2 → `http://localhost:8082` (Raft RPC on `:3031`)
+- Node 3 → `http://localhost:8083` (Raft RPC on `:3032`)
 
-Once the cluster is running, you can interact with it using `curl`.
+---
 
-### 1. Check Node Status and Find the Leader
+## 🧪 Testing the File System
 
-The nodes will automatically elect a leader. You can find out which node is the current leader by querying the `/status` endpoint on each one.
+### 1. Find the Leader
 
 ```sh
 curl http://localhost:8081/status
-curl http://localhost:8082/status
-curl http://localhost:8083/status
 ```
 
-One of the nodes will respond with `"is_leader": true`.
+Look for `"is_leader": true`.
 
 ### 2. Upload a File
 
-All write operations (like creating a file) **must be sent to the leader**. Let's assume Node 1 (`:8081`) is the leader.
-
-First, create a sample file to upload:
 ```sh
 echo "hello distributed world" > my-test-file.txt
-```
-
-Now, upload it using a `POST` request. The URL path determines the name of the file within the distributed system.
-
-```sh
 curl -X POST --data-binary @my-test-file.txt http://localhost:8081/upload/my-first-file.txt
 ```
 
-You should receive a success message: `File '/upload/my-first-file.txt' created successfully (24 bytes)`.
-
-### 3. List All Files
-
-Because the file creation metadata was replicated via Raft, you can ask **any node** for the list of files. Let's query a follower (e.g., Node 2) to prove that the state was replicated.
+### 3. List Files (from any node)
 
 ```sh
 curl http://localhost:8082/files
 ```
 
-The response will be a JSON array containing the metadata for `my-first-file.txt`.
-
-### 4. Download a File
-
-You can download the file from any node that has the file's content stored locally. In this implementation, only the node that originally accepted the upload stores the content.
-
-To download the file, send a `GET` request to the original node (Node 1 in our example):
+### 4. Download from a Follower
 
 ```sh
-curl http://localhost:8081/upload/my-first-file.txt
+curl http://localhost:8083/upload/my-first-file.txt
 ```
 
-This will return the content of the file: `hello distributed world`.
+---
+
+##  Future Improvements
+
+This DFS is functional but still simplified compared to production systems like HDFS or GFS. Potential extensions include:
+
+- **Chunking & Sharding**
+  Split large files into fixed-size chunks and distribute them across nodes for better scalability.
+- **Configurable Replication Factor**
+  Store file data on a subset of nodes (e.g., RF=3) instead of all nodes, saving storage while preserving redundancy.
+- **Background Repair & Recovery**
+  Periodically verify replicas with checksums and automatically repair missing or corrupted chunks.
+- **Dynamic Cluster Membership**
+  Allow nodes to join or leave the cluster at runtime without restarting.
+- **Read Consistency Options**
+  Add strong, eventual, or leader-only read modes depending on application needs.
+- **Versioning & Logical Clocks**
+  Use Lamport or Hybrid Logical Clocks to support file updates, version tracking, and conflict resolution.
+
