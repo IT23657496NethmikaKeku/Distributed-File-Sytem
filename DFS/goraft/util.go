@@ -48,6 +48,13 @@ func (s *Server) Followers() []ClusterMember {
 	return followers
 }
 
+// ClusterMembers returns a list of all members in the cluster.
+func (s *Server) ClusterMembers() []ClusterMember {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cluster
+}
+
 // Excludes blank entries
 func (s *Server) AllCommitted() (bool, float64) {
 	s.mu.Lock()

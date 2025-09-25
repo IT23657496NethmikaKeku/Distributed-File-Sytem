@@ -282,7 +282,14 @@ func (hs *httpServer) replicateFileHandler(w http.ResponseWriter, r *http.Reques
 	}
 	defer file.Close()
 
-	io.Copy(file, r.Body)
+	_, err = io.Copy(file, r.Body)
+	if err != nil {
+		// Clean up the partially written file on error
+		os.Remove(dataFilePath)
+		http.Error(w, "Failed to write replicated file content", http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "File replicated successfully")
 }
@@ -293,9 +300,88 @@ func (hs *httpServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		hs.getFileHandler(w, r)
 	case http.MethodPost:
 		hs.createFileHandler(w, r)
+	case http.MethodDelete:
+		hs.deleteFileHandler(w, r)
 	default:
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (hs *httpServer) deleteFileHandler(w http.ResponseWriter, r *http.Request) {
+	if !hs.raft.IsLeader() {
+		http.Error(w, "Not the leader - try another node", http.StatusServiceUnavailable)
+		return
+	}
+
+	filePath := strings.TrimPrefix(r.URL.Path, "/upload/")
+	log.Printf("Received DeleteFile request for %s", filePath)
+
+	// Check if file exists in the state machine before proceeding
+	if _, ok := hs.stateMachine.files.Load(filePath); !ok {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	cmd := command{
+		Kind: DeleteFile,
+		Path: filePath,
+	}
+
+	_, err := hs.raft.Apply([][]byte{encodeCommand(cmd)})
+	if err != nil {
+		log.Printf("Raft Apply error for DeleteFile: %s", err)
+		http.Error(w, "Failed to replicate file deletion metadata", http.StatusInternalServerError)
+		return
+	}
+
+	// After metadata is committed, instruct all nodes to delete the file content.
+	hs.broadcastDeleteContent(filePath)
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "File '%s' deleted successfully", filePath)
+}
+
+// broadcastDeleteContent tells all nodes in the cluster (including the leader)
+// to delete the physical file content.
+func (hs *httpServer) broadcastDeleteContent(filePath string) {
+	members := hs.raft.ClusterMembers()
+	var wg sync.WaitGroup
+	for _, member := range members {
+		wg.Add(1)
+		go func(m goraft.ClusterMember) {
+			defer wg.Done()
+			url := fmt.Sprintf("http://%s/delete-content/%s", m.HttpAddress, filePath)
+			req, _ := http.NewRequest(http.MethodPost, url, nil) // Using POST for action
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Printf("Failed to send delete content instruction to %s: %v", m.HttpAddress, err)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				log.Printf("Node %s failed to delete content for %s (Status: %s)", m.HttpAddress, filePath, resp.Status)
+			}
+		}(member)
+	}
+	wg.Wait()
+}
+
+// deleteContentHandler is the endpoint that receives the instruction to delete a file.
+func (hs *httpServer) deleteContentHandler(w http.ResponseWriter, r *http.Request) {
+	filePath := strings.TrimPrefix(r.URL.Path, "/delete-content/")
+	dataFilePath := filepath.Join(hs.dataDir, filepath.Base(filePath))
+
+	log.Printf("Received instruction to delete content for: %s", dataFilePath)
+
+	err := os.Remove(dataFilePath)
+	if err != nil && !os.IsNotExist(err) {
+		log.Printf("Error deleting file content %s: %v", dataFilePath, err)
+		http.Error(w, "Failed to delete file content", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 type config struct {
@@ -398,6 +484,7 @@ func main() {
 	mux.HandleFunc("/status", hs.statusHandler)
 	mux.HandleFunc("/files", hs.listFilesHandler)
 	mux.HandleFunc("/replicate/", hs.replicateFileHandler)
+	mux.HandleFunc("/delete-content/", hs.deleteContentHandler)
 	mux.HandleFunc("/upload/", hs.uploadHandler) // Combined handler for GET and POST
 
 	log.Printf("Node %d starting HTTP server on %s", s.Id(), cfg.http)

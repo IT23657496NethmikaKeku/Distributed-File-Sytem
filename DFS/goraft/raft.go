@@ -519,27 +519,27 @@ func (s *Server) Apply(commands [][]byte) ([]ApplyResult, error) {
 
 func (s *Server) rpcCall(i int, name string, req, rsp any) bool {
 	s.mu.Lock()
-	c := s.cluster[i]
+	member := &s.cluster[i]
 	var err error
 
-	if c.rpcClient == nil {
-		c.rpcClient, err = rpc.DialHTTP("tcp", c.Address)
-		if err == nil {
-			s.cluster[i].rpcClient = c.rpcClient // Store the connection
-		}
+	// If the client is nil, we must dial. This is done inside the lock
+	// to prevent a race condition where multiple goroutines dial simultaneously.
+	if member.rpcClient == nil {
+		member.rpcClient, err = rpc.DialHTTP("tcp", member.Address)
 	}
 
-	rpcClient := c.rpcClient
+	// The actual RPC call is performed outside the lock to avoid blocking the server.
+	rpcClient := member.rpcClient
 	s.mu.Unlock()
 
-	if err == nil && rpcClient != nil {
+	if err == nil && rpcClient != nil { // If dial was successful and client exists
 		err = rpcClient.Call(name, req, rsp)
 	}
 
 	if err != nil {
 		// Only log errors occasionally to reduce spam
 		if rand.Intn(10) == 0 {
-			s.warn(fmt.Sprintf("RPC error to node %d: %s", c.Id, err))
+			s.warn(fmt.Sprintf("RPC error to node %d: %s", member.Id, err))
 		}
 
 		// Close bad connection
