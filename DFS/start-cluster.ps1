@@ -1,7 +1,7 @@
 # Remove the problematic single quotes
-Start-Process -FilePath ".\dfsapi.exe" -ArgumentList "--node 0 --http :8081 --cluster 1,:3030;2,:3031;3,:3032"
-Start-Process -FilePath ".\dfsapi.exe" -ArgumentList "--node 1 --http :8082 --cluster 1,:3030;2,:3031;3,:3032"
-Start-Process -FilePath ".\dfsapi.exe" -ArgumentList "--node 2 --http :8083 --cluster 1,:3030;2,:3031;3,:3032"
+Start-Process -FilePath ".\dfsapi.exe" -ArgumentList "--node 0 --http localhost:8081 --cluster 1,localhost:3030,localhost:8081;2,localhost:3031,localhost:8082;3,localhost:3032,localhost:8083"
+Start-Process -FilePath ".\dfsapi.exe" -ArgumentList "--node 1 --http localhost:8082 --cluster 1,localhost:3030,localhost:8081;2,localhost:3031,localhost:8082;3,localhost:3032,localhost:8083"
+Start-Process -FilePath ".\dfsapi.exe" -ArgumentList "--node 2 --http localhost:8083 --cluster 1,localhost:3030,localhost:8081;2,localhost:3031,localhost:8082;3,localhost:3032,localhost:8083"
 
 Write-Host "All nodes started!"
 Write-Host "HTTP APIs available on:"

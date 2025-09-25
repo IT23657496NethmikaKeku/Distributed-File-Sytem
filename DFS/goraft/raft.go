@@ -68,12 +68,13 @@ type AppendEntriesResponse struct {
 }
 
 type ClusterMember struct {
-	Id         uint64
-	Address    string
-	nextIndex  uint64
-	matchIndex uint64
-	votedFor   uint64
-	rpcClient  *rpc.Client
+	Id          uint64
+	Address     string
+	HttpAddress string
+	nextIndex   uint64
+	matchIndex  uint64
+	votedFor    uint64
+	rpcClient   *rpc.Client
 }
 
 type ServerState string

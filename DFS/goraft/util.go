@@ -30,6 +30,24 @@ func (s *Server) IsLeader() bool {
 	return s.state == leaderState
 }
 
+// Followers returns a list of cluster members that are not the leader.
+func (s *Server) Followers() []ClusterMember {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var followers []ClusterMember
+	if s.state != leaderState {
+		return followers
+	}
+
+	for i, member := range s.cluster {
+		if i != s.clusterIndex {
+			followers = append(followers, member)
+		}
+	}
+	return followers
+}
+
 // Excludes blank entries
 func (s *Server) AllCommitted() (bool, float64) {
 	s.mu.Lock()
